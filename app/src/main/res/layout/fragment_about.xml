@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:scrollbars="none"
+    android:padding="16dp"
+    tools:context=".About">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <ImageView
+            android:layout_width="250dp"
+            android:layout_height="250dp"
+            android:layout_gravity="center"
+            android:src="@drawable/sir_1" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:layout_marginTop="16dp"
+            android:text="প্রকল্প পরিচালক:\nড. মোঃ আলম হোসেন\nঅধ্যাপককম্পিউটার বিজ্ঞান ও প্রকৌশল বিভাগ\nযশোর বিজ্ঞান ও প্রযুক্তি বিশ্ববিদ্যালয়, যশোর-৭৪০৮" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginVertical="16dp"
+            android:background="@color/dark_gray" />
+
+        <ImageView
+            android:layout_width="250dp"
+            android:layout_height="250dp"
+            android:layout_gravity="center"
+            android:src="@drawable/sir_2" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:layout_marginTop="16dp"
+            android:text="পপ্রকল্প সহকারী পরিচালক:\nমোস্তাফিজুর রহমান আকন্দ\nসহকারী অধ্যাপক\nকম্পিউটার বিজ্ঞান ও প্রকৌশল বিভাগ\nযশোর বিজ্ঞান ও প্রযুক্তি বিশ্ববিদ্যালয়, যশোর-৭৪০৮" />
+    </LinearLayout>
+</ScrollView>

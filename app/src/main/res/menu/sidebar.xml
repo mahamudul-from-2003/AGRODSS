@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <group android:checkableBehavior="single">
+        <item
+            android:id="@+id/home"
+            android:icon="@drawable/baseline_home_24"
+            android:title="Home" />
+
+        <item
+            android:id="@+id/dataset"
+            android:icon="@drawable/outline_dataset_24"
+            android:title="Datasets" />
+
+        <item
+            android:id="@+id/publication"
+            android:icon="@drawable/publication"
+            android:title="Publications" />
+
+        <item
+            android:id="@+id/recommendation"
+            android:icon="@drawable/bot"
+            android:title="AI Recommendations" />
+
+        <item
+            android:id="@+id/about"
+            android:icon="@drawable/info"
+            android:title="About Author" />
+    </group>
+
+    <item android:title="External Links">
+        <menu>
+            <item
+                android:id="@+id/web"
+                android:icon="@drawable/website"
+                android:title="Visit Website" />
+        </menu>
+    </item>
+
+</menu>
