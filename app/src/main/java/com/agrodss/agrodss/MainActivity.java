@@ -83,91 +83,52 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-//    public void loadFragment(Fragment fragment, String title) {
-//        try {
-//            Log.d(TAG, "loadFragment: " + title + " | Fragment: " + fragment.getClass().getSimpleName());
-//
-//            // Update title immediately
-//            toolbarTitle.setText(title);
-//
-//            FragmentManager fragmentManager = getSupportFragmentManager();
-//            FragmentTransaction transaction = fragmentManager.beginTransaction();
-//
-//            transaction.setCustomAnimations(
-//                    R.anim.slide_in_right,
-//                    R.anim.slide_out_left,
-//                    R.anim.slide_in_left,
-//                    R.anim.slide_out_right
-//            );
-//
-//            transaction.replace(R.id.fragment_container, fragment);
-//
-//            if (!(fragment instanceof Home)) {
-//                transaction.addToBackStack(null);
-//            }
-//
-//            transaction.commit();
-//
-//            // Close drawer
-//            if (drawerLayout.isDrawerOpen(GravityCompat.START)) {
-//                drawerLayout.closeDrawer(GravityCompat.START);
-//            }
-//
-//            // Optional: Update title again after commit (in case of delay)
-//            fragmentManager.executePendingTransactions();
-//            updateToolbarTitle();
-//
-//        } catch (Exception e) {
-//            Log.e(TAG, "Error loading fragment: " + title, e);
-//            showSnackbar("Error loading " + title);
-//        }
-//    }
-public void loadFragment(Fragment fragment, String title) {
-    try {
-        Log.d(TAG, "loadFragment: " + title + " | Fragment: " + fragment.getClass().getSimpleName());
+    public void loadFragment(Fragment fragment, String title) {
+        try {
+            Log.d(TAG, "loadFragment: " + title + " | Fragment: " + fragment.getClass().getSimpleName());
 
-        // Update title immediately
-        toolbarTitle.setText(title);
+            // Update title immediately
+            toolbarTitle.setText(title);
 
-        FragmentManager fragmentManager = getSupportFragmentManager();
-        FragmentTransaction transaction = fragmentManager.beginTransaction();
+            FragmentManager fragmentManager = getSupportFragmentManager();
+            FragmentTransaction transaction = fragmentManager.beginTransaction();
 
-        // Only use animations for non-initial transactions
-        if (fragmentManager.getBackStackEntryCount() > 0) {
-            transaction.setCustomAnimations(
-                    R.anim.slide_in_right,
-                    R.anim.slide_out_left,
-                    R.anim.slide_in_left,
-                    R.anim.slide_out_right
-            );
+            // Only use animations for non-initial transactions
+            if (fragmentManager.getBackStackEntryCount() > 0) {
+                transaction.setCustomAnimations(
+                        R.anim.slide_in_right,
+                        R.anim.slide_out_left,
+                        R.anim.slide_in_left,
+                        R.anim.slide_out_right
+                );
+            }
+
+            transaction.replace(R.id.fragment_container, fragment);
+
+            // Only add to backstack if it's NOT the Home fragment and NOT the initial load
+            boolean isHomeFragment = fragment instanceof Home;
+            boolean isInitialLoad = fragmentManager.getBackStackEntryCount() == 0 && isHomeFragment;
+
+            if (!isInitialLoad && !isHomeFragment) {
+                transaction.addToBackStack(null);
+                Log.d(TAG, "Added to backstack: " + title);
+            } else {
+                Log.d(TAG, "Not added to backstack: " + title + " (Home or initial load)");
+            }
+
+            transaction.commit();
+            fragmentManager.executePendingTransactions();
+
+            // Close drawer
+            if (drawerLayout.isDrawerOpen(GravityCompat.START)) {
+                drawerLayout.closeDrawer(GravityCompat.START);
+            }
+
+        } catch (Exception e) {
+            Log.e(TAG, "Error loading fragment: " + title, e);
+            showSnackbar("Error loading " + title);
         }
-
-        transaction.replace(R.id.fragment_container, fragment);
-
-        // Only add to backstack if it's NOT the Home fragment and NOT the initial load
-        boolean isHomeFragment = fragment instanceof Home;
-        boolean isInitialLoad = fragmentManager.getBackStackEntryCount() == 0 && isHomeFragment;
-
-        if (!isInitialLoad && !isHomeFragment) {
-            transaction.addToBackStack(null);
-            Log.d(TAG, "Added to backstack: " + title);
-        } else {
-            Log.d(TAG, "Not added to backstack: " + title + " (Home or initial load)");
-        }
-
-        transaction.commit();
-        fragmentManager.executePendingTransactions();
-
-        // Close drawer
-        if (drawerLayout.isDrawerOpen(GravityCompat.START)) {
-            drawerLayout.closeDrawer(GravityCompat.START);
-        }
-
-    } catch (Exception e) {
-        Log.e(TAG, "Error loading fragment: " + title, e);
-        showSnackbar("Error loading " + title);
     }
-}
 
     private void toggleDrawer() {
         if (drawerLayout.isDrawerOpen(GravityCompat.START)) {
