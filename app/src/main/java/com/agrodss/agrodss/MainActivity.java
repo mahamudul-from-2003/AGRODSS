@@ -5,7 +5,6 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.util.Log;
 import android.widget.ImageView;
-import android.widget.TextView;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.view.GravityCompat;
@@ -21,7 +20,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String TAG = "MainActivity";
     private NavigationView navigationView;
     private androidx.drawerlayout.widget.DrawerLayout drawerLayout;
-    private TextView toolbarTitle;
+    //private TextView toolbarTitle;
     private long backPressedTime = 0;
     private static final int BACK_PRESS_DELAY = 2000;
 
@@ -29,8 +28,6 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-
-        Log.d(TAG, "onCreate() called");
 
         initializeViews();
         setupNavigation();
@@ -42,7 +39,7 @@ public class MainActivity extends AppCompatActivity {
             FragmentTransaction transaction = getSupportFragmentManager().beginTransaction();
             transaction.replace(R.id.fragment_container, new Home());
             transaction.commit();
-            toolbarTitle.setText("Home");
+            //toolbarTitle.setText("Home");
         }
     }
 
@@ -50,10 +47,9 @@ public class MainActivity extends AppCompatActivity {
         navigationView = findViewById(R.id.navigationView);
         drawerLayout = findViewById(R.id.main);
         ImageView menuIcon = findViewById(R.id.menuIcon);
-        toolbarTitle = findViewById(R.id.toolbarTitle);
+        //toolbarTitle = findViewById(R.id.toolbarTitle);
 
         menuIcon.setOnClickListener(v -> {
-            Log.d(TAG, "Menu icon clicked");
             toggleDrawer();
         });
     }
@@ -61,7 +57,6 @@ public class MainActivity extends AppCompatActivity {
     private void setupNavigation() {
         navigationView.setNavigationItemSelectedListener(item -> {
             int itemId = item.getItemId();
-            Log.d(TAG, "Navigation item clicked: " + item.getTitle());
 
             if (itemId == R.id.home) {
                 loadFragment(new Home(), "Home");
@@ -85,10 +80,9 @@ public class MainActivity extends AppCompatActivity {
 
     public void loadFragment(Fragment fragment, String title) {
         try {
-            Log.d(TAG, "loadFragment: " + title + " | Fragment: " + fragment.getClass().getSimpleName());
 
             // Update title immediately
-            toolbarTitle.setText(title);
+            //toolbarTitle.setText(title);
 
             FragmentManager fragmentManager = getSupportFragmentManager();
             FragmentTransaction transaction = fragmentManager.beginTransaction();
@@ -111,7 +105,6 @@ public class MainActivity extends AppCompatActivity {
 
             if (!isInitialLoad && !isHomeFragment) {
                 transaction.addToBackStack(null);
-                Log.d(TAG, "Added to backstack: " + title);
             } else {
                 Log.d(TAG, "Not added to backstack: " + title + " (Home or initial load)");
             }
@@ -125,7 +118,6 @@ public class MainActivity extends AppCompatActivity {
             }
 
         } catch (Exception e) {
-            Log.e(TAG, "Error loading fragment: " + title, e);
             showSnackbar("Error loading " + title);
         }
     }
@@ -153,7 +145,7 @@ public class MainActivity extends AppCompatActivity {
                 .findFragmentById(R.id.fragment_container);
 
         if (currentFragment == null) {
-            toolbarTitle.setText("AgroDSS");
+            //toolbarTitle.setText("AgroDSS");
             return;
         }
 
@@ -164,7 +156,7 @@ public class MainActivity extends AppCompatActivity {
         else if (currentFragment instanceof Recommendation) title = "Recommendations";
         else if (currentFragment instanceof About) title = "About";
 
-        toolbarTitle.setText(title);
+        //toolbarTitle.setText(title);
         Log.d(TAG, "Toolbar title updated to: " + title);
     }
 

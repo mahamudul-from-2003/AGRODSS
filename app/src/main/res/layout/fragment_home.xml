@@ -22,15 +22,15 @@
         <View
             android:layout_width="match_parent"
             android:layout_height="1dp"
-            android:layout_marginVertical="16dp"
-            android:background="@color/dark_gray" />
+            android:layout_marginVertical="32dp"
+            android:background="@color/light_gray" />
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginVertical="16dp"
             android:gravity="center"
-            android:text="Machine Learning Model"
+            android:text="মডেলের গঠন"
             android:textColor="@color/black"
             android:textSize="20sp"
             android:textStyle="bold" />
@@ -43,23 +43,39 @@
 
             <ImageView
                 android:layout_width="0dp"
-                android:layout_height="300dp"
+                android:layout_height="400dp"
                 android:layout_marginEnd="4dp"
                 android:layout_weight="1"
                 android:src="@drawable/model_1" />
 
             <ImageView
                 android:layout_width="0dp"
-                android:layout_height="300dp"
+                android:layout_height="400dp"
                 android:layout_marginStart="4dp"
                 android:layout_weight="1"
                 android:src="@drawable/model_2" />
         </LinearLayout>
 
-        <ImageView
+        <View
             android:layout_width="match_parent"
-            android:layout_height="300dp"
-            android:layout_marginTop="16dp"
+            android:layout_height="1dp"
+            android:layout_marginVertical="32dp"
+            android:background="@color/light_gray" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:text="কনভোলিউশন নিউরাল নেটওয়ার্ক আর্কিটেকচার"
+            android:textColor="@color/black"
+            android:textSize="20sp"
+            android:textStyle="bold" />
+
+        <ImageView
+            android:layout_width="wrap_content"
+            android:layout_height="500dp"
+            android:layout_marginTop="8dp"
+            android:gravity="center"
             android:src="@drawable/model_3" />
     </LinearLayout>
 </ScrollView>
