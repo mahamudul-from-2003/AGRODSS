@@ -2,9 +2,12 @@ package com.agrodss.agrodss;
 
 import android.Manifest;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
+import android.provider.MediaStore;
 import android.provider.OpenableColumns;
 import android.util.Log;
 import android.view.LayoutInflater;
@@ -16,9 +19,10 @@ import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
-import androidx.annotation.NonNull;
+import androidx.appcompat.app.AlertDialog;
 import androidx.cardview.widget.CardView;
 import androidx.core.content.ContextCompat;
+import androidx.core.content.FileProvider;
 import androidx.fragment.app.Fragment;
 
 import com.bumptech.glide.Glide;
@@ -28,6 +32,9 @@ import org.json.JSONObject;
 
 import java.io.File;
 import java.io.IOException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
 
 import okhttp3.MediaType;
 import okhttp3.MultipartBody;
@@ -44,12 +51,13 @@ public class Recommendation extends Fragment {
     private ImageView imagePreview;
     private CardView uploadCard;
     private TextView fileNameText, resultText, chooseText, resultTitle;
-    private MaterialButton uploadButton;
+    private MaterialButton uploadButton, cancelButton;
     private View scrollView;
 
     private Uri selectedImageUri;
     private String selectedFileName;
-    private OkHttpClient client;
+    private String currentPhotoPath;
+    private final OkHttpClient client;
 
     public static class DiseaseResult {
         public String disease;
@@ -57,16 +65,41 @@ public class Recommendation extends Fragment {
         public String recommendation;
     }
 
-    // Launchers
-    private final ActivityResultLauncher<String> permissionLauncher = registerForActivityResult(new ActivityResultContracts.RequestPermission(), granted -> {
+    // Launchers for permissions
+    private final ActivityResultLauncher<String> cameraPermissionLauncher = registerForActivityResult(new ActivityResultContracts.RequestPermission(), granted -> {
         if (granted) {
-            openImagePicker();
+            openCamera();
         } else {
-            Toast.makeText(requireContext(), "Permission denied – cannot select images", Toast.LENGTH_LONG).show();
+            Toast.makeText(requireContext(), "Camera permission is required to take photos", Toast.LENGTH_LONG).show();
         }
     });
 
-    private final ActivityResultLauncher<Intent> pickImageLauncher = registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
+    private final ActivityResultLauncher<String> storagePermissionLauncher = registerForActivityResult(new ActivityResultContracts.RequestPermission(), granted -> {
+        if (granted) {
+            openGallery();
+        } else {
+            Toast.makeText(requireContext(), "Storage permission is required to choose images", Toast.LENGTH_LONG).show();
+        }
+    });
+
+    // Launcher for camera
+    private final ActivityResultLauncher<Intent> cameraLauncher = registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
+        if (result.getResultCode() == requireActivity().RESULT_OK) {
+            // Camera photo was taken successfully
+            if (currentPhotoPath != null) {
+                File photoFile = new File(currentPhotoPath);
+                if (photoFile.exists()) {
+                    selectedImageUri = FileProvider.getUriForFile(requireContext(),
+                            requireContext().getPackageName() + ".provider", photoFile);
+                    selectedFileName = "photo_" + System.currentTimeMillis() + ".jpg";
+                    handleImageSelection(selectedImageUri);
+                }
+            }
+        }
+    });
+
+    // Launcher for gallery
+    private final ActivityResultLauncher<Intent> galleryLauncher = registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
         if (result.getResultCode() == requireActivity().RESULT_OK) {
             Intent data = result.getData();
             if (data != null) {
@@ -100,10 +133,11 @@ public class Recommendation extends Fragment {
         uploadCard = v.findViewById(R.id.uploadCard);
         fileNameText = v.findViewById(R.id.fileNameText);
         uploadButton = v.findViewById(R.id.uploadButton);
+        cancelButton = v.findViewById(R.id.cancelButton);
         resultText = v.findViewById(R.id.resultText);
         chooseText = v.findViewById(R.id.choose);
         resultTitle = v.findViewById(R.id.result);
-        scrollView = v.findViewById(R.id.scrollView); // This should be the ScrollView
+        scrollView = v.findViewById(R.id.scrollView);
 
         // Initialize visibility
         if (resultText != null) {
@@ -115,32 +149,101 @@ public class Recommendation extends Fragment {
         if (scrollView != null) {
             scrollView.setVisibility(View.GONE);
         }
+
+        // Initially hide cancel button
+        cancelButton.setVisibility(View.GONE);
     }
 
     private void setListeners() {
-        uploadCard.setOnClickListener(v -> requestPermissionAndPick());
+        uploadCard.setOnClickListener(v -> showImageSourceDialog());
         uploadButton.setOnClickListener(v -> uploadImage());
+        cancelButton.setOnClickListener(v -> resetUI());
     }
 
-    private void requestPermissionAndPick() {
+    private void showImageSourceDialog() {
+        String[] options = {"Take Photo", "Choose from Gallery"};
+
+        AlertDialog.Builder builder = new AlertDialog.Builder(requireContext());
+        builder.setTitle("Choose Image Source");
+        builder.setItems(options, (dialog, which) -> {
+            switch (which) {
+                case 0: // Take Photo
+                    requestCameraPermission();
+                    break;
+                case 1: // Choose from Gallery
+                    requestStoragePermission();
+                    break;
+            }
+        });
+        builder.show();
+    }
+
+    private void requestCameraPermission() {
+        if (ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            openCamera();
+        } else {
+            cameraPermissionLauncher.launch(Manifest.permission.CAMERA);
+        }
+    }
+
+    private void requestStoragePermission() {
         String permission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ?
                 Manifest.permission.READ_MEDIA_IMAGES :
                 Manifest.permission.READ_EXTERNAL_STORAGE;
 
-        if (ContextCompat.checkSelfPermission(requireContext(), permission) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
-            openImagePicker();
+        if (ContextCompat.checkSelfPermission(requireContext(), permission) == PackageManager.PERMISSION_GRANTED) {
+            openGallery();
         } else {
-            permissionLauncher.launch(permission);
+            storagePermissionLauncher.launch(permission);
         }
     }
 
-    private void openImagePicker() {
+    private void openCamera() {
+        try {
+            Intent takePictureIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+
+            // Ensure there's a camera activity to handle the intent
+            if (takePictureIntent.resolveActivity(requireContext().getPackageManager()) != null) {
+                // Create the File where the photo should go
+                File photoFile = createImageFile();
+                if (photoFile != null) {
+                    selectedImageUri = FileProvider.getUriForFile(requireContext(),
+                            requireContext().getPackageName() + ".provider", photoFile);
+                    takePictureIntent.putExtra(MediaStore.EXTRA_OUTPUT, selectedImageUri);
+                    cameraLauncher.launch(takePictureIntent);
+                }
+            } else {
+                Toast.makeText(requireContext(), "No camera app found", Toast.LENGTH_SHORT).show();
+            }
+        } catch (Exception e) {
+            Toast.makeText(requireContext(), "Error opening camera: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            Log.e(TAG, "Camera error: " + e.getMessage());
+        }
+    }
+
+    private File createImageFile() throws IOException {
+        // Create an image file name
+        String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
+        String imageFileName = "JPEG_" + timeStamp + "_";
+        File storageDir = requireContext().getExternalFilesDir(Environment.DIRECTORY_PICTURES);
+        File image = File.createTempFile(
+                imageFileName,  /* prefix */
+                ".jpg",         /* suffix */
+                storageDir      /* directory */
+        );
+
+        // Save a file: path for use with ACTION_VIEW intents
+        currentPhotoPath = image.getAbsolutePath();
+        return image;
+    }
+
+    private void openGallery() {
         try {
             Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
             intent.setType("image/*");
             intent.addCategory(Intent.CATEGORY_OPENABLE);
             Intent chooser = Intent.createChooser(intent, "Select an Image");
-            pickImageLauncher.launch(chooser);
+            galleryLauncher.launch(chooser);
         } catch (Exception e) {
             Toast.makeText(requireContext(), "Error: " + e.getMessage(), Toast.LENGTH_LONG).show();
         }
@@ -156,8 +259,9 @@ public class Recommendation extends Fragment {
             String displayText = selectedFileName != null ? selectedFileName : "Image selected";
             fileNameText.setText(displayText);
 
-            // Show upload button
+            // Show upload button, hide cancel button
             uploadButton.setVisibility(View.VISIBLE);
+            cancelButton.setVisibility(View.GONE);
 
             // Hide choose text and upload card
             chooseText.setVisibility(View.GONE);
@@ -332,78 +436,82 @@ public class Recommendation extends Fragment {
     }
 
     private String generateRecommendation(String disease, double confidence) {
-        // Convert to percentage (47.57 means 47.57%)
         double confidencePercent = confidence;
 
         if (confidencePercent < 95.0) {
-            return "দুঃখিত, আপনার প্রদত্ত ছবিটি সিস্টেম সঠিক ভাবে এনালাইসিস করতে পারেনি (" +
-                    String.format("%.1f", confidence) + "% আত্মবিশ্বাস)।\n\nঅনুগ্রহকরে আরো স্পষ্ট ছবি দিয়ে পুনরায় চেষ্টা করুন।";
+            return "<b>দুঃখিত</b>, আপনার প্রদত্ত ছবিটি সিস্টেম সঠিক ভাবে এনালাইসিস করতে পারেনি (" +
+                    String.format("%.1f", confidence) + "% আত্মবিশ্বাস)।<br><br>অনুগ্রহকরে আরো স্পষ্ট ছবি দিয়ে পুনরায় চেষ্টা করুন।";
         }
 
         switch (disease.trim()) {
             case "Bean Angular Leaf Spot":
-                return "রোগ: শিমের কৌণিক পাতার দাগ\n\n" +
-                        "কীটনাশক: কার্বেন্ডাজিম, কপার হাইড্রক্সাইড, মানকোজেব\n\n" +
-                        "ব্যবহারবিধি:\nকার্বেন্ডাজিমগ্রুপের (ডেরোসাল, ব্যাভিস্টিন) প্রতি শতক জমিতে ২.৫ মিলি. / লি. হারে পানিতে মিশিয়ে ১০ দিন পরপর ৩ বার শেষ বিকেলে স্প্রে করতে হবে।\n\nকপার হাইড্রক্সাইডগ্রুপের (কোসিড, চ্যাম্প) প্রতি শতক জমিতে ৫ মিলি. / লি. হারে পানিতে মিশিয়ে ১০ দিন পরপর ৩ বার শেষ বিকেলে স্প্রে করতে হবে।\n\nমানকোজেবগ্রুপের (মানজাতে, ডাইথেন এম-৪৫) প্রতি শতক জমিতে ১৬ মিলি. / লি. হারে পানিতে মিশিয়ে ১০ দিন পরপর ৩ বার শেষ বিকেলে স্প্রে করতে হবে।";
+                return "<b>রোগ:</b> শিমের কৌণিক পাতার দাগ<br><br>" +
+                        "<b>কীটনাশক:</b> কার্বেন্ডাজিম, কপার হাইড্রক্সাইড, মানকোজেব<br><br>" +
+                        "<b>ব্যবহারবিধি:</b><br>কার্বেন্ডাজিমগ্রুপের (ডেরোসাল, ব্যাভিস্টিন) প্রতি শতক জমিতে ২.৫ মিলি. / লি. হারে পানিতে মিশিয়ে ১০ দিন পরপর ৩ বার শেষ বিকেলে স্প্রে করতে হবে।<br><br>কপার হাইড্রক্সাইডগ্রুপের (কোসিড, চ্যাম্প) প্রতি শতক জমিতে ৫ মিলি. / লি. হারে পানিতে মিশিয়ে ১০ দিন পরপর ৩ বার শেষ বিকেলে স্প্রে করতে হবে।<br><br>মানকোজেবগ্রুপের (মানজাতে, ডাইথেন এম-৪৫) প্রতি শতক জমিতে ১৬ মিলি. / লি. হারে পানিতে মিশিয়ে ১০ দিন পরপর ৩ বার শেষ বিকেলে স্প্রে করতে হবে।";
 
             case "Bean Bean Rust":
-                return "রোগ: শিমের মরিচা\n\n" +
-                        "কীটনাশক: প্রোপিকোনাজল, টেবুকোনাজল, ট্রাইফ্লোক্সিস্ট্রবিন\n\n" +
-                        "ব্যবহারবিধি:\nপ্রপিকোনাজলগ্রুপের ছত্রাকনাশক (টিল্ট, ব্যানার ম্যাক্স) প্রতি শতক জমিতে ১.২৫ মিলি. / লি. হারে পানিতে মিশিয়ে ১০ দিন পরপর ৩ বার শেষ বিকেলে স্প্রে করতে হবে।\n\nটেবুকোনাজলগ্রুপের ছত্রাকনাশক (ফলিকুর, এলিট) প্রতি শতক জমিতে  ২ মিলি. / লি. হারে পানিতে মিশিয়ে ১০ দিন পরপর ৩ বার শেষ বিকেলে স্প্রে করতে হবে।\n\nট্রাইফ্লোক্সিস্ট্রবিনগ্রুপের ছত্রাকনাশক (টিল্ট, ব্যানার ম্যাক্স) প্রতি শতক জমিতে ৫ মিলি. / লি. হারে পানিতে মিশিয়ে ১০ দিন পরপর ৩ বার শেষ বিকেলে স্প্রে করতে হবে।";
+                return "<b>রোগ:</b> শিমের মরিচা<br><br>" +
+                        "<b>কীটনাশক:</b> প্রোপিকোনাজল, টেবুকোনাজল, ট্রাইফ্লোক্সিস্ট্রবিন<br><br>" +
+                        "<b>ব্যবহারবিধি:</b><br>প্রপিকোনাজলগ্রুপের ছত্রাকনাশক (টিল্ট, ব্যানার ম্যাক্স) প্রতি শতক জমিতে ১.২৫ মিলি. / লি. হারে পানিতে মিশিয়ে ১০ দিন পরপর ৩ বার শেষ বিকেলে স্প্রে করতে হবে।<br><br>টেবুকোনাজলগ্রুপের ছত্রাকনাশক (ফলিকুর, এলিট) প্রতি শতক জমিতে  ২ মিলি. / লি. হারে পানিতে মিশিয়ে ১০ দিন পরপর ৩ বার শেষ বিকেলে স্প্রে করতে হবে।<br><br>ট্রাইফ্লোক্সিস্ট্রবিনগ্রুপের ছত্রাকনাশক (টিল্ট, ব্যানার ম্যাক্স) প্রতি শতক জমিতে ৫ মিলি. / লি. হারে পানিতে মিশিয়ে ১০ দিন পরপর ৩ বার শেষ বিকেলে স্প্রে করতে হবে।";
 
             case "Rice Bacterial Leaf Blight":
-                return "রোগ: পেডি ব্যাকটেরিয়াল লিফ ব্লাইট\n\n" +
-                        "কীটনাশক: স্ট্রীপটোমাইসিন\n\n" +
-                        "ব্যবহারবিধি:\nপেডি ব্যাকটেরিয়াল লিফ ব্লাইট রোগের জন্য স্ট্রীপটোমাইসিন কীটনাশক(ব্লাসটিসিডিন অথবা ব্লাসটিসিডিন ১ গ্রাম অথবা স্ট্রীপটোমাইসিন সালফেট ২গ্রাম) ১ লিটার পানিতে মিশিয়ে শতক প্রতি স্প্রে করতে হবে৷";
+                return "<b>রোগ:</b> পেডি ব্যাকটেরিয়াল লিফ ব্লাইট<br><br>" +
+                        "<b>কীটনাশক:</b> স্ট্রীপটোমাইসিন<br><br>" +
+                        "<b>ব্যবহারবিধি:</b><br>পেডি ব্যাকটেরিয়াল লিফ ব্লাইট রোগের জন্য স্ট্রীপটোমাইসিন কীটনাশক(ব্লাসটিসিডিন অথবা ব্লাসটিসিডিন ১ গ্রাম অথবা স্ট্রীপটোমাইসিন সালফেট ২গ্রাম) ১ লিটার পানিতে মিশিয়ে শতক প্রতি স্প্রে করতে হবে৷";
 
             case "Rice Brown Spot":
-                return "রোগ: পেডি ব্রাউন স্পট\n\n" +
-                        "কীটনাশক: ট্রীসাইক্লাজল\n\n" +
-                        "ব্যবহারবিধি:\nপেডি ব্রাউন স্পট রোগের জন্য ট্রীসাইক্লাজল কীটনাশক (বেলিটন অথবা ট্রিফরিন ০.৫গ্রাম ২ লিটার পানিতে মিশিয়ে অথবা ট্রিজল ১গ্রাম  ৩ লিটার পানিতে মিশিয়ে)শতক প্রতি স্প্রে করতে হবে৷";
+                return "<b>রোগ:</b> পেডি ব্রাউন স্পট<br><br>" +
+                        "<b>কীটনাশক:</b> ট্রীসাইক্লাজল<br><br>" +
+                        "<b>ব্যবহারবিধি:</b><br>পেডি ব্রাউন স্পট রোগের জন্য ট্রীসাইক্লাজল কীটনাশক (বেলিটন অথবা ট্রিফরিন ০.৫গ্রাম ২ লিটার পানিতে মিশিয়ে অথবা ট্রিজল ১গ্রাম  ৩ লিটার পানিতে মিশিয়ে)শতক প্রতি স্প্রে করতে হবে৷";
 
             case "Rice Hispa":
-                return "রোগ: ধানের পাতার ঝাপটা\n\n" +
-                        "কীটনাশক: কারবেনডাজিম\n\n" +
-                        "ব্যবহারবিধি:\nধানের পাতার ঝাপটা রোগের জন্য কারবেনডাজিম কীটনাশক (বেভিসটিন অথবা ভিটাভেক্স ০.৫গ্রাম  অথবা ফানডাজল ১গ্রাম  ) ১ লিটার পানিতে মিশিয়েশতক প্রতি স্প্রে করতে হবে৷";
+                return "<b>রোগ:</b> ধানের পাতার ঝাপটা<br><br>" +
+                        "<b>কীটনাশক:</b> কারবেনডাজিম<br><br>" +
+                        "<b>ব্যবহারবিধি:</b><br>ধানের পাতার ঝাপটা রোগের জন্য কারবেনডাজিম কীটনাশক (বেভিসটিন অথবা ভিটাভেক্স ০.৫গ্রাম  অথবা ফানডাজল ১গ্রাম  ) ১ লিটার পানিতে মিশিয়েশতক প্রতি স্প্রে করতে হবে৷";
 
             case "Rice Healthy":
-                return "ধানের সুস্থ্য এবং স্বাস্থ্যকর পাতা।\n\nকোনো কীটনাশকের প্রয়োজন নেই।";
+                return "ধানের সুস্থ্য এবং স্বাস্থ্যকর পাতা।<br><br>কোনো কীটনাশকের প্রয়োজন নেই।";
 
             default:
-                return "রোগ: " + disease + "\n\nদুঃখিত, এই রোগের জন্য আমাদের ডাটাবেসে এখনো তথ্য নেই।";
+                return "<b>রোগ:</b> " + disease + "<br><br>দুঃখিত, এই রোগের জন্য আমাদের ডাটাবেসে এখনো তথ্য নেই।";
         }
     }
 
     private void displayResult(DiseaseResult result) {
         if (resultText == null || result == null) return;
 
-        StringBuilder resultBuilder = new StringBuilder();
-        resultBuilder.append("🔍 রোগ নির্ণয় ফলাফল:\n\n");
-        //resultBuilder.append("রোগ: ").append(result.disease).append("\n");
-        //resultBuilder.append("আত্মবিশ্বাস: ").append(String.format("%.1f%%", result.confidence)).append("\n\n");
-        resultBuilder.append(result.recommendation);
+        String fullText = result.recommendation;
 
-        resultText.setText(resultBuilder.toString());
-        showResults(); // Make results visible
+        // Convert newlines to HTML breaks and render HTML
+        String htmlText = fullText.replace("\n", "<br>");
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            resultText.setText(android.text.Html.fromHtml(htmlText, android.text.Html.FROM_HTML_MODE_LEGACY));
+        } else {
+            resultText.setText(android.text.Html.fromHtml(htmlText));
+        }
+
+        showResults();
+        uploadButton.setVisibility(View.GONE);
+        cancelButton.setVisibility(View.VISIBLE);
     }
 
     private void resetUI() {
-        requireActivity().runOnUiThread(() -> {
-            // Reset to initial state
-            imagePreview.setVisibility(View.GONE);
-            uploadCard.setVisibility(View.VISIBLE);
-            chooseText.setVisibility(View.VISIBLE);
-            uploadButton.setVisibility(View.GONE);
-            fileNameText.setText("No file chosen");
-            hideResults();
-            selectedImageUri = null;
-            selectedFileName = null;
-            uploadButton.setEnabled(true);
-        });
-    }
+        // Reset to initial state
+        imagePreview.setVisibility(View.GONE);
+        uploadCard.setVisibility(View.VISIBLE);
+        chooseText.setVisibility(View.VISIBLE);
+        uploadButton.setVisibility(View.GONE);
+        cancelButton.setVisibility(View.GONE);
+        fileNameText.setText("No file chosen");
+        hideResults();
+        selectedImageUri = null;
+        selectedFileName = null;
+        currentPhotoPath = null;
+        uploadButton.setEnabled(true);
 
-    // Optional: Add a method to handle back button or reset
-    public void resetSelection() {
-        resetUI();
+        // Clear the image from Glide
+        if (imagePreview != null) {
+            Glide.with(this).clear(imagePreview);
+        }
     }
 }

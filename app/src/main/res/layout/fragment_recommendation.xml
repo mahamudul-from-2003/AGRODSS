@@ -80,7 +80,7 @@
         android:id="@+id/result"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="The result is"
+        android:text="ফলাফল"
         android:textColor="#000000"
         android:textSize="20sp"
         android:textStyle="bold"
@@ -90,6 +90,7 @@
         android:id="@+id/scrollView"
         android:layout_width="match_parent"
         android:layout_height="260dp"
+        android:elevation="16dp"
         android:visibility="gone">
 
         <LinearLayout
@@ -119,11 +120,11 @@
         android:text="Upload"
         android:visibility="gone" />
     <com.google.android.material.button.MaterialButton
-        android:id="@+id/uploadButton"
+        android:id="@+id/cancelButton"
         android:backgroundTint="#CF142B"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="24dp"
         android:text="Clear"
-        android:visibility="visible" />
+        android:visibility="gone" />
 </LinearLayout>
