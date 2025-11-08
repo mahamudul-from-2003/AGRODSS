@@ -206,12 +206,10 @@ public class Recommendation extends Fragment {
             if (takePictureIntent.resolveActivity(requireContext().getPackageManager()) != null) {
                 // Create the File where the photo should go
                 File photoFile = createImageFile();
-                if (photoFile != null) {
-                    selectedImageUri = FileProvider.getUriForFile(requireContext(),
-                            requireContext().getPackageName() + ".provider", photoFile);
-                    takePictureIntent.putExtra(MediaStore.EXTRA_OUTPUT, selectedImageUri);
-                    cameraLauncher.launch(takePictureIntent);
-                }
+                selectedImageUri = FileProvider.getUriForFile(requireContext(),
+                        requireContext().getPackageName() + ".provider", photoFile);
+                takePictureIntent.putExtra(MediaStore.EXTRA_OUTPUT, selectedImageUri);
+                cameraLauncher.launch(takePictureIntent);
             } else {
                 Toast.makeText(requireContext(), "No camera app found", Toast.LENGTH_SHORT).show();
             }
@@ -341,25 +339,14 @@ public class Recommendation extends Fragment {
 
                 // Step 1: Upload image to get prediction
                 String filename = uploadImageToAPI(file);
-                if (filename == null) {
-                    requireActivity().runOnUiThread(() -> {
-                        Toast.makeText(requireContext(), "Failed to analyze image", Toast.LENGTH_LONG).show();
-                        uploadButton.setEnabled(true);
-                    });
-                    return;
-                }
 
                 // Step 2: Get prediction results
                 DiseaseResult result = getPredictionResults(filename);
 
                 requireActivity().runOnUiThread(() -> {
                     uploadButton.setEnabled(true);
-                    if (result != null) {
-                        displayResult(result);
-                        Toast.makeText(requireContext(), "Analysis complete!", Toast.LENGTH_LONG).show();
-                    } else {
-                        Toast.makeText(requireContext(), "No results found", Toast.LENGTH_LONG).show();
-                    }
+                    displayResult(result);
+                    Toast.makeText(requireContext(), "Analysis complete!", Toast.LENGTH_LONG).show();
                 });
 
             } catch (Exception e) {
@@ -436,11 +423,9 @@ public class Recommendation extends Fragment {
     }
 
     private String generateRecommendation(String disease, double confidence) {
-        double confidencePercent = confidence;
 
-        if (confidencePercent < 95.0) {
-            return "<b>দুঃখিত</b>, আপনার প্রদত্ত ছবিটি সিস্টেম সঠিক ভাবে এনালাইসিস করতে পারেনি (" +
-                    String.format("%.1f", confidence) + "% আত্মবিশ্বাস)।<br><br>অনুগ্রহকরে আরো স্পষ্ট ছবি দিয়ে পুনরায় চেষ্টা করুন।";
+        if (confidence < 95.0) {
+            return "<b>দুঃখিত</b>, আপনার প্রদত্ত ছবিটি সিস্টেম সঠিক ভাবে এনালাইসিস করতে পারেনি অনুগ্রহকরে আরো স্পষ্ট ছবি দিয়ে পুনরায় চেষ্টা করুন।";
         }
 
         switch (disease.trim()) {
