@@ -9,8 +9,8 @@
 
         <item
             android:id="@+id/dataset"
-            android:icon="@drawable/outline_dataset_24"
-            android:title="Datasets" />
+            android:icon="@drawable/ic_dataset"
+            android:title="Dataset" />
 
         <item
             android:id="@+id/publication"
@@ -20,7 +20,7 @@
         <item
             android:id="@+id/recommendation"
             android:icon="@drawable/bot"
-            android:title="AI Recommendations" />
+            android:title="AI Recommendation" />
 
         <item
             android:id="@+id/about"
