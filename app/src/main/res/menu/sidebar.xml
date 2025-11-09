@@ -5,27 +5,27 @@
         <item
             android:id="@+id/home"
             android:icon="@drawable/baseline_home_24"
-            android:title="Home" />
+            android:title="হোম" />
 
         <item
             android:id="@+id/dataset"
             android:icon="@drawable/ic_dataset"
-            android:title="Dataset" />
+            android:title="ডাটাসেট" />
 
         <item
             android:id="@+id/publication"
             android:icon="@drawable/publication"
-            android:title="Publications" />
+            android:title="পাবলিকেশন" />
 
         <item
             android:id="@+id/recommendation"
-            android:icon="@drawable/bot"
-            android:title="AI Recommendation" />
+            android:icon="@drawable/pesticide"
+            android:title="কীটনাশক সুপারিশ" />
 
         <item
             android:id="@+id/about"
             android:icon="@drawable/info"
-            android:title="About Author" />
+            android:title="সম্পর্কে" />
     </group>
 
     <item android:title="External Links">
@@ -33,7 +33,7 @@
             <item
                 android:id="@+id/web"
                 android:icon="@drawable/website"
-                android:title="Visit Website" />
+                android:title="ভিজিট ওয়েবসাইট" />
         </menu>
     </item>
 

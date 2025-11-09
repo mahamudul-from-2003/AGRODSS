@@ -21,9 +21,11 @@
         android:id="@+id/choose"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Choose an Image"
+        android:autoSizeTextType="uniform"
+        android:maxLines="1"
+        android:text="রোগাক্রান্ত পাতার ছবি আপলোড করুন"
         android:textColor="#000000"
-        android:textSize="20sp"
+        android:textSize="24sp"
         android:textStyle="bold" />
 
     <androidx.cardview.widget.CardView
@@ -118,12 +120,13 @@
         android:layout_marginTop="24dp"
         android:text="Upload"
         android:visibility="gone" />
+
     <com.google.android.material.button.MaterialButton
         android:id="@+id/cancelButton"
-        android:backgroundTint="#CF142B"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="24dp"
+        android:backgroundTint="#CF142B"
         android:text="Clear"
         android:visibility="gone" />
 </LinearLayout>
