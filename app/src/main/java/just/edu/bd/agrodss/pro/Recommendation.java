@@ -427,7 +427,7 @@ public class Recommendation extends Fragment {
 
     private String generateRecommendation(String disease, double confidence) {
 
-        if (confidence < 95.0) {
+        if (confidence < 50.0) {
             return "<b>দুঃখিত</b>, আপনার প্রদত্ত ছবিটি সিস্টেম সঠিক ভাবে এনালাইসিস করতে পারেনি অনুগ্রহকরে আরো স্পষ্ট ছবি দিয়ে পুনরায় চেষ্টা করুন।";
         }
 
