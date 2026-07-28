@@ -28,12 +28,15 @@ import androidx.fragment.app.Fragment;
 import com.bumptech.glide.Glide;
 import com.google.android.material.button.MaterialButton;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.File;
 import java.io.IOException;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
 import java.util.Locale;
 
 import okhttp3.MediaType;
@@ -46,7 +49,7 @@ import okhttp3.Response;
 public class Recommendation extends Fragment {
 
     private static final String TAG = "RecommendationFragment";
-    private static final String BASE_API_URL = "http://103.159.2.97:8000";
+    private static final String BASE_API_URL = "http://103.159.2.97:8081";
 
     private ImageView imagePreview;
     private CardView uploadCard;
@@ -56,13 +59,14 @@ public class Recommendation extends Fragment {
     private ProgressBar progressBar;
     private Uri selectedImageUri;
     private String selectedFileName;
+    private String selectedMimeType;
     private String currentPhotoPath;
     private final OkHttpClient client;
 
     public static class DiseaseResult {
-        public String disease;
-        public double confidence;
-        public String recommendation;
+        public String diseaseName;
+        public List<String> pesticideNames;
+        public String rule;
     }
 
     // Launchers for permissions
@@ -92,6 +96,7 @@ public class Recommendation extends Fragment {
                     selectedImageUri = FileProvider.getUriForFile(requireContext(),
                             requireContext().getPackageName() + ".provider", photoFile);
                     selectedFileName = "photo_" + System.currentTimeMillis() + ".jpg";
+                    selectedMimeType = "image/jpeg";
                     handleImageSelection(selectedImageUri);
                 }
             }
@@ -107,6 +112,8 @@ public class Recommendation extends Fragment {
                 if (uri != null) {
                     selectedImageUri = uri;
                     selectedFileName = getFileName(uri);
+                    String mimeType = requireContext().getContentResolver().getType(uri);
+                    selectedMimeType = mimeType != null ? mimeType : "image/jpeg";
                     handleImageSelection(uri);
                 }
             }
@@ -339,140 +346,84 @@ public class Recommendation extends Fragment {
                     return;
                 }
 
-                // Step 1: Upload image to get prediction
-                String filename = uploadImageToAPI(file);
-
-                // Step 2: Get prediction results
-                DiseaseResult result = getPredictionResults(filename);
+                String mimeType = selectedMimeType != null ? selectedMimeType : "image/jpeg";
+                DiseaseResult result = classifyImage(file, mimeType);
 
                 requireActivity().runOnUiThread(() -> {
                     uploadButton.setEnabled(true);
                     displayResult(result);
                     progressBar.setVisibility(View.GONE);
-                    //Toast.makeText(requireContext(), "Analysis complete!", Toast.LENGTH_LONG).show();
                 });
 
             } catch (Exception e) {
-                //Log.e(TAG, "Upload error: " + e.getMessage(), e);
+                String message = e.getMessage() != null ? e.getMessage() : "একটি ত্রুটি ঘটেছে। আবার চেষ্টা করুন।";
                 requireActivity().runOnUiThread(() -> {
                     uploadButton.setEnabled(true);
-                    //Toast.makeText(requireContext(), "Error: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                    progressBar.setVisibility(View.GONE);
+                    Toast.makeText(requireContext(), message, Toast.LENGTH_LONG).show();
                 });
             }
         }).start();
     }
 
-    private String uploadImageToAPI(File imageFile) throws IOException {
+    private DiseaseResult classifyImage(File imageFile, String mimeType) throws IOException {
         RequestBody requestBody = new MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
-                .addFormDataPart("file", imageFile.getName(),
-                        RequestBody.create(MediaType.parse("image/*"), imageFile))
+                .addFormDataPart("image", imageFile.getName(),
+                        RequestBody.create(MediaType.parse(mimeType), imageFile))
                 .build();
 
         Request request = new Request.Builder()
-                .url(BASE_API_URL + "/predict")
+                .url(BASE_API_URL + "/api/v1/disease/classify")
                 .post(requestBody)
                 .build();
 
         try (Response response = client.newCall(request).execute()) {
-            if (!response.isSuccessful()) {
-                throw new IOException("Unexpected code " + response);
+            String responseBody = response.body() != null ? response.body().string() : "";
+            JSONObject json = new JSONObject(responseBody);
+
+            if (!response.isSuccessful() || !json.optBoolean("success", false)) {
+                throw new IOException(json.optString("error", "শ্রেণীবদ্ধকরণ ব্যর্থ হয়েছে।"));
             }
 
-            String responseBody = response.body().string();
-            //Log.d(TAG, "Upload response: " + responseBody);
+            JSONObject data = json.getJSONObject("data");
+            DiseaseResult result = new DiseaseResult();
+            result.diseaseName = data.optString("diseaseName", null);
+            result.rule = data.optString("rule", null);
 
-            JSONObject jsonResponse = new JSONObject(responseBody);
-            return jsonResponse.getString("filename");
+            result.pesticideNames = new ArrayList<>();
+            JSONArray pesticideArray = data.optJSONArray("pesticideName");
+            if (pesticideArray != null) {
+                for (int i = 0; i < pesticideArray.length(); i++) {
+                    result.pesticideNames.add(pesticideArray.getString(i));
+                }
+            }
+            return result;
 
+        } catch (IOException e) {
+            throw e;
         } catch (Exception e) {
-            throw new IOException("Failed to upload image: " + e.getMessage());
-        }
-    }
-
-    private DiseaseResult getPredictionResults(String filename) throws IOException {
-        Request request = new Request.Builder()
-                .url(BASE_API_URL + "/data/filename=" + filename)
-                .get()
-                .build();
-
-        try (Response response = client.newCall(request).execute()) {
-            if (!response.isSuccessful()) {
-                throw new IOException("Unexpected code " + response);
-            }
-
-            String responseBody = response.body().string();
-            //Log.d(TAG, "Prediction response: " + responseBody);
-
-            JSONObject jsonResponse = new JSONObject(responseBody);
-
-            if (jsonResponse.has("data")) {
-                String dataString = jsonResponse.getString("data");
-                JSONObject dataObject = new JSONObject(dataString);
-
-                DiseaseResult result = new DiseaseResult();
-                result.disease = dataObject.getString("prediction");
-                result.confidence = dataObject.getDouble("confidence");
-                result.recommendation = generateRecommendation(result.disease, result.confidence);
-
-                return result;
-            } else {
-                throw new IOException("No 'data' field in response");
-            }
-
-        } catch (Exception e) {
-            throw new IOException("Failed to get results: " + e.getMessage());
-        }
-    }
-
-    private String generateRecommendation(String disease, double confidence) {
-
-        if (confidence < 50.0) {
-            return "<b>দুঃখিত</b>, আপনার প্রদত্ত ছবিটি সিস্টেম সঠিক ভাবে এনালাইসিস করতে পারেনি অনুগ্রহকরে আরো স্পষ্ট ছবি দিয়ে পুনরায় চেষ্টা করুন।";
-        }
-
-        switch (disease.trim()) {
-            case "Bean Angular Leaf Spot":
-                return "<b>রোগ:</b> শিমের কৌণিক পাতার দাগ<br><br>" +
-                        "<b>কীটনাশক:</b> কার্বেন্ডাজিম, কপার হাইড্রক্সাইড, মানকোজেব<br><br>" +
-                        "<b>ব্যবহারবিধি:</b><br>কার্বেন্ডাজিমগ্রুপের (ডেরোসাল, ব্যাভিস্টিন) প্রতি শতক জমিতে ২.৫ মিলি. / লি. হারে পানিতে মিশিয়ে ১০ দিন পরপর ৩ বার শেষ বিকেলে স্প্রে করতে হবে।<br><br>কপার হাইড্রক্সাইডগ্রুপের (কোসিড, চ্যাম্প) প্রতি শতক জমিতে ৫ মিলি. / লি. হারে পানিতে মিশিয়ে ১০ দিন পরপর ৩ বার শেষ বিকেলে স্প্রে করতে হবে।<br><br>মানকোজেবগ্রুপের (মানজাতে, ডাইথেন এম-৪৫) প্রতি শতক জমিতে ১৬ মিলি. / লি. হারে পানিতে মিশিয়ে ১০ দিন পরপর ৩ বার শেষ বিকেলে স্প্রে করতে হবে।";
-
-            case "Bean Bean Rust":
-                return "<b>রোগ:</b> শিমের মরিচা<br><br>" +
-                        "<b>কীটনাশক:</b> প্রোপিকোনাজল, টেবুকোনাজল, ট্রাইফ্লোক্সিস্ট্রবিন<br><br>" +
-                        "<b>ব্যবহারবিধি:</b><br>প্রপিকোনাজলগ্রুপের ছত্রাকনাশক (টিল্ট, ব্যানার ম্যাক্স) প্রতি শতক জমিতে ১.২৫ মিলি. / লি. হারে পানিতে মিশিয়ে ১০ দিন পরপর ৩ বার শেষ বিকেলে স্প্রে করতে হবে।<br><br>টেবুকোনাজলগ্রুপের ছত্রাকনাশক (ফলিকুর, এলিট) প্রতি শতক জমিতে  ২ মিলি. / লি. হারে পানিতে মিশিয়ে ১০ দিন পরপর ৩ বার শেষ বিকেলে স্প্রে করতে হবে।<br><br>ট্রাইফ্লোক্সিস্ট্রবিনগ্রুপের ছত্রাকনাশক (টিল্ট, ব্যানার ম্যাক্স) প্রতি শতক জমিতে ৫ মিলি. / লি. হারে পানিতে মিশিয়ে ১০ দিন পরপর ৩ বার শেষ বিকেলে স্প্রে করতে হবে।";
-
-            case "Rice Bacterial Leaf Blight":
-                return "<b>রোগ:</b> পেডি ব্যাকটেরিয়াল লিফ ব্লাইট<br><br>" +
-                        "<b>কীটনাশক:</b> স্ট্রীপটোমাইসিন<br><br>" +
-                        "<b>ব্যবহারবিধি:</b><br>পেডি ব্যাকটেরিয়াল লিফ ব্লাইট রোগের জন্য স্ট্রীপটোমাইসিন কীটনাশক(ব্লাসটিসিডিন অথবা ব্লাসটিসিডিন ১ গ্রাম অথবা স্ট্রীপটোমাইসিন সালফেট ২গ্রাম) ১ লিটার পানিতে মিশিয়ে শতক প্রতি স্প্রে করতে হবে৷";
-
-            case "Rice Brown Spot":
-                return "<b>রোগ:</b> পেডি ব্রাউন স্পট<br><br>" +
-                        "<b>কীটনাশক:</b> ট্রীসাইক্লাজল<br><br>" +
-                        "<b>ব্যবহারবিধি:</b><br>পেডি ব্রাউন স্পট রোগের জন্য ট্রীসাইক্লাজল কীটনাশক (বেলিটন অথবা ট্রিফরিন ০.৫গ্রাম ২ লিটার পানিতে মিশিয়ে অথবা ট্রিজল ১গ্রাম  ৩ লিটার পানিতে মিশিয়ে)শতক প্রতি স্প্রে করতে হবে৷";
-
-            case "Rice Hispa":
-                return "<b>রোগ:</b> ধানের পাতার ঝাপটা<br><br>" +
-                        "<b>কীটনাশক:</b> কারবেনডাজিম<br><br>" +
-                        "<b>ব্যবহারবিধি:</b><br>ধানের পাতার ঝাপটা রোগের জন্য কারবেনডাজিম কীটনাশক (বেভিসটিন অথবা ভিটাভেক্স ০.৫গ্রাম  অথবা ফানডাজল ১গ্রাম  ) ১ লিটার পানিতে মিশিয়েশতক প্রতি স্প্রে করতে হবে৷";
-
-            case "Rice Healthy":
-                return "ধানের সুস্থ্য এবং স্বাস্থ্যকর পাতা।<br><br>কোনো কীটনাশকের প্রয়োজন নেই।";
-
-            default:
-                return "<b>রোগ:</b> " + disease + "<br><br>দুঃখিত, এই রোগের জন্য আমাদের ডাটাবেসে এখনো তথ্য নেই।";
+            throw new IOException("সার্ভার থেকে সঠিক উত্তর পাওয়া যায়নি।");
         }
     }
 
     private void displayResult(DiseaseResult result) {
         if (resultText == null || result == null) return;
 
-        String fullText = result.recommendation;
+        StringBuilder html = new StringBuilder();
+        if (result.diseaseName != null) {
+            html.append("<b>রোগ:</b> ").append(result.diseaseName).append("<br><br>");
+        }
+        if (result.pesticideNames != null && !result.pesticideNames.isEmpty()) {
+            html.append("<b>কীটনাশক:</b> ")
+                    .append(android.text.TextUtils.join(", ", result.pesticideNames))
+                    .append("<br><br>");
+        }
+        if (result.rule != null) {
+            html.append("<b>ব্যবহারবিধি:</b><br>").append(result.rule.replace("\n", "<br>"));
+        }
 
-        // Convert newlines to HTML breaks and render HTML
-        String htmlText = fullText.replace("\n", "<br>");
-        resultText.setText(android.text.Html.fromHtml(htmlText, android.text.Html.FROM_HTML_MODE_LEGACY));
+        resultText.setText(android.text.Html.fromHtml(html.toString(), android.text.Html.FROM_HTML_MODE_LEGACY));
 
         showResults();
         uploadButton.setVisibility(View.GONE);
@@ -490,6 +441,7 @@ public class Recommendation extends Fragment {
         hideResults();
         selectedImageUri = null;
         selectedFileName = null;
+        selectedMimeType = null;
         currentPhotoPath = null;
         uploadButton.setEnabled(true);
 
