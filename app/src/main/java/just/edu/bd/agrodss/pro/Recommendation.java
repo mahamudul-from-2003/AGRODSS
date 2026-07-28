@@ -4,7 +4,6 @@ import android.Manifest;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.provider.MediaStore;
@@ -19,6 +18,7 @@ import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.activity.result.PickVisualMediaRequest;  // IMPORTANT: Add this
 import androidx.appcompat.app.AlertDialog;
 import androidx.cardview.widget.CardView;
 import androidx.core.content.ContextCompat;
@@ -32,7 +32,9 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
@@ -48,7 +50,6 @@ import okhttp3.Response;
 
 public class Recommendation extends Fragment {
 
-    private static final String TAG = "RecommendationFragment";
     private static final String BASE_API_URL = "http://103.159.2.97:8081";
 
     private ImageView imagePreview;
@@ -60,7 +61,6 @@ public class Recommendation extends Fragment {
     private Uri selectedImageUri;
     private String selectedFileName;
     private String selectedMimeType;
-    private String currentPhotoPath;
     private final OkHttpClient client;
 
     public static class DiseaseResult {
@@ -69,56 +69,41 @@ public class Recommendation extends Fragment {
         public String rule;
     }
 
-    // Launchers for permissions
-    private final ActivityResultLauncher<String> cameraPermissionLauncher = registerForActivityResult(new ActivityResultContracts.RequestPermission(), granted -> {
-        if (granted) {
-            openCamera();
-        } else {
-            Toast.makeText(requireContext(), "Camera permission is required to take photos", Toast.LENGTH_LONG).show();
-        }
-    });
-
-    private final ActivityResultLauncher<String> storagePermissionLauncher = registerForActivityResult(new ActivityResultContracts.RequestPermission(), granted -> {
-        if (granted) {
-            openGallery();
-        } else {
-            Toast.makeText(requireContext(), "Storage permission is required to choose images", Toast.LENGTH_LONG).show();
-        }
-    });
-
-    // Launcher for camera
-    private final ActivityResultLauncher<Intent> cameraLauncher = registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
-        if (result.getResultCode() == requireActivity().RESULT_OK) {
-            // Camera photo was taken successfully
-            if (currentPhotoPath != null) {
-                File photoFile = new File(currentPhotoPath);
-                if (photoFile.exists()) {
-                    selectedImageUri = FileProvider.getUriForFile(requireContext(),
-                            requireContext().getPackageName() + ".provider", photoFile);
-                    selectedFileName = "photo_" + System.currentTimeMillis() + ".jpg";
-                    selectedMimeType = "image/jpeg";
-                    handleImageSelection(selectedImageUri);
-                }
-            }
-        }
-    });
-
-    // Launcher for gallery
-    private final ActivityResultLauncher<Intent> galleryLauncher = registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
-        if (result.getResultCode() == requireActivity().RESULT_OK) {
-            Intent data = result.getData();
-            if (data != null) {
-                Uri uri = data.getData();
+    // CORRECTED: Photo Picker Launcher
+    private final ActivityResultLauncher<PickVisualMediaRequest> photoPickerLauncher =
+            registerForActivityResult(new ActivityResultContracts.PickVisualMedia(), uri -> {
                 if (uri != null) {
                     selectedImageUri = uri;
                     selectedFileName = getFileName(uri);
-                    String mimeType = requireContext().getContentResolver().getType(uri);
-                    selectedMimeType = mimeType != null ? mimeType : "image/jpeg";
+                    selectedMimeType = requireContext().getContentResolver().getType(uri);
                     handleImageSelection(uri);
+                } else {
+                    Toast.makeText(requireContext(), "No image selected", Toast.LENGTH_SHORT).show();
                 }
-            }
-        }
-    });
+            });
+
+    // Camera permission
+    private final ActivityResultLauncher<String> cameraPermissionLauncher =
+            registerForActivityResult(new ActivityResultContracts.RequestPermission(), granted -> {
+                if (granted) {
+                    openCamera();
+                } else {
+                    Toast.makeText(requireContext(), "Camera permission is required to take photos", Toast.LENGTH_LONG).show();
+                }
+            });
+
+    // Camera launcher
+    private final ActivityResultLauncher<Intent> cameraLauncher =
+            registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
+                if (result.getResultCode() == requireActivity().RESULT_OK) {
+                    // Handle camera result
+                    if (selectedImageUri != null) {
+                        selectedFileName = "photo_" + System.currentTimeMillis() + ".jpg";
+                        selectedMimeType = "image/jpeg";
+                        handleImageSelection(selectedImageUri);
+                    }
+                }
+            });
 
     public Recommendation() {
         client = new OkHttpClient.Builder()
@@ -147,18 +132,9 @@ public class Recommendation extends Fragment {
         scrollView = v.findViewById(R.id.scrollView);
         progressBar = v.findViewById(R.id.progressBar);
 
-        // Initialize visibility
-        if (resultText != null) {
-            resultText.setVisibility(View.GONE);
-        }
-        if (resultTitle != null) {
-            resultTitle.setVisibility(View.GONE);
-        }
-        if (scrollView != null) {
-            scrollView.setVisibility(View.GONE);
-        }
-
-        // Initially hide cancel button
+        if (resultText != null) resultText.setVisibility(View.GONE);
+        if (resultTitle != null) resultTitle.setVisibility(View.GONE);
+        if (scrollView != null) scrollView.setVisibility(View.GONE);
         cancelButton.setVisibility(View.GONE);
     }
 
@@ -175,15 +151,24 @@ public class Recommendation extends Fragment {
         builder.setTitle("Choose Image Source");
         builder.setItems(options, (dialog, which) -> {
             switch (which) {
-                case 0: // Take Photo
+                case 0:
                     requestCameraPermission();
                     break;
-                case 1: // Choose from Gallery
-                    requestStoragePermission();
+                case 1:
+                    openPhotoPicker();
                     break;
             }
         });
         builder.show();
+    }
+
+    // CORRECTED: Open Photo Picker
+    private void openPhotoPicker() {
+        photoPickerLauncher.launch(
+                new PickVisualMediaRequest.Builder()
+                        .setMediaType(ActivityResultContracts.PickVisualMedia.ImageOnly.INSTANCE)
+                        .build()
+        );
     }
 
     private void requestCameraPermission() {
@@ -194,86 +179,44 @@ public class Recommendation extends Fragment {
         }
     }
 
-    private void requestStoragePermission() {
-        String permission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ?
-                Manifest.permission.READ_MEDIA_IMAGES :
-                Manifest.permission.READ_EXTERNAL_STORAGE;
-
-        if (ContextCompat.checkSelfPermission(requireContext(), permission) == PackageManager.PERMISSION_GRANTED) {
-            openGallery();
-        } else {
-            storagePermissionLauncher.launch(permission);
-        }
-    }
-
     private void openCamera() {
         try {
             Intent takePictureIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
-
-            // Ensure there's a camera activity to handle the intent
             if (takePictureIntent.resolveActivity(requireContext().getPackageManager()) != null) {
-                // Create the File where the photo should go
                 File photoFile = createImageFile();
-                selectedImageUri = FileProvider.getUriForFile(requireContext(),
-                        requireContext().getPackageName() + ".provider", photoFile);
-                takePictureIntent.putExtra(MediaStore.EXTRA_OUTPUT, selectedImageUri);
-                cameraLauncher.launch(takePictureIntent);
+                if (photoFile != null) {
+                    selectedImageUri = FileProvider.getUriForFile(requireContext(),
+                            requireContext().getPackageName() + ".provider", photoFile);
+                    takePictureIntent.putExtra(MediaStore.EXTRA_OUTPUT, selectedImageUri);
+                    cameraLauncher.launch(takePictureIntent);
+                }
             } else {
                 Toast.makeText(requireContext(), "No camera app found", Toast.LENGTH_SHORT).show();
             }
         } catch (Exception e) {
             Toast.makeText(requireContext(), "Error opening camera: " + e.getMessage(), Toast.LENGTH_LONG).show();
-            //Log.e(TAG, "Camera error: " + e.getMessage());
         }
     }
 
     private File createImageFile() throws IOException {
-        // Create an image file name
         String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
         String imageFileName = "JPEG_" + timeStamp + "_";
         File storageDir = requireContext().getExternalFilesDir(Environment.DIRECTORY_PICTURES);
-        File image = File.createTempFile(
-                imageFileName,  /* prefix */
-                ".jpg",         /* suffix */
-                storageDir      /* directory */
-        );
-
-        // Save a file: path for use with ACTION_VIEW intents
-        currentPhotoPath = image.getAbsolutePath();
-        return image;
-    }
-
-    private void openGallery() {
-        try {
-            Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
-            intent.setType("image/*");
-            intent.addCategory(Intent.CATEGORY_OPENABLE);
-            Intent chooser = Intent.createChooser(intent, "Select an Image");
-            galleryLauncher.launch(chooser);
-        } catch (Exception e) {
-            Toast.makeText(requireContext(), "Error: " + e.getMessage(), Toast.LENGTH_LONG).show();
-        }
+        return File.createTempFile(imageFileName, ".jpg", storageDir);
     }
 
     private void handleImageSelection(Uri uri) {
         try {
-            // Show image preview
             Glide.with(this).load(uri).centerCrop().into(imagePreview);
             imagePreview.setVisibility(View.VISIBLE);
 
-            // Update file name text
             String displayText = selectedFileName != null ? selectedFileName : "Image selected";
             fileNameText.setText(displayText);
 
-            // Show upload button, hide cancel button
             uploadButton.setVisibility(View.VISIBLE);
             cancelButton.setVisibility(View.GONE);
-
-            // Hide choose text and upload card
             chooseText.setVisibility(View.GONE);
             uploadCard.setVisibility(View.GONE);
-
-            // Hide previous results
             hideResults();
 
         } catch (Exception e) {
@@ -282,27 +225,15 @@ public class Recommendation extends Fragment {
     }
 
     private void hideResults() {
-        if (resultTitle != null) {
-            resultTitle.setVisibility(View.GONE);
-        }
-        if (scrollView != null) {
-            scrollView.setVisibility(View.GONE);
-        }
-        if (resultText != null) {
-            resultText.setVisibility(View.GONE);
-        }
+        if (resultTitle != null) resultTitle.setVisibility(View.GONE);
+        if (scrollView != null) scrollView.setVisibility(View.GONE);
+        if (resultText != null) resultText.setVisibility(View.GONE);
     }
 
     private void showResults() {
-        if (resultTitle != null) {
-            resultTitle.setVisibility(View.VISIBLE);
-        }
-        if (scrollView != null) {
-            scrollView.setVisibility(View.VISIBLE);
-        }
-        if (resultText != null) {
-            resultText.setVisibility(View.VISIBLE);
-        }
+        if (resultTitle != null) resultTitle.setVisibility(View.VISIBLE);
+        if (scrollView != null) scrollView.setVisibility(View.VISIBLE);
+        if (resultText != null) resultText.setVisibility(View.VISIBLE);
     }
 
     private String getFileName(Uri uri) {
@@ -316,7 +247,7 @@ public class Recommendation extends Fragment {
                     }
                 }
             } catch (Exception e) {
-                //Log.e(TAG, "Error getting file name: " + e.getMessage());
+                // Log error
             }
         }
         if (result == null) {
@@ -332,12 +263,11 @@ public class Recommendation extends Fragment {
         }
 
         progressBar.setVisibility(View.VISIBLE);
-        //Toast.makeText(requireContext(), "Analyzing image...", Toast.LENGTH_SHORT).show();
         uploadButton.setEnabled(false);
 
         new Thread(() -> {
             try {
-                File file = FileUtils.createFileFromUri(requireContext(), selectedImageUri, selectedFileName);
+                File file = createFileFromUri(selectedImageUri);
                 if (file == null) {
                     requireActivity().runOnUiThread(() -> {
                         Toast.makeText(requireContext(), "Failed to prepare file", Toast.LENGTH_SHORT).show();
@@ -356,14 +286,31 @@ public class Recommendation extends Fragment {
                 });
 
             } catch (Exception e) {
-                String message = e.getMessage() != null ? e.getMessage() : "একটি ত্রুটি ঘটেছে। আবার চেষ্টা করুন।";
                 requireActivity().runOnUiThread(() -> {
                     uploadButton.setEnabled(true);
                     progressBar.setVisibility(View.GONE);
-                    Toast.makeText(requireContext(), message, Toast.LENGTH_LONG).show();
+                    Toast.makeText(requireContext(), "Error: " + e.getMessage(), Toast.LENGTH_LONG).show();
                 });
             }
         }).start();
+    }
+
+    private File createFileFromUri(Uri uri) throws IOException {
+        File cacheDir = new File(requireContext().getCacheDir(), "uploads");
+        if (!cacheDir.exists()) cacheDir.mkdirs();
+
+        String fileName = selectedFileName != null ? selectedFileName : "temp_image.jpg";
+        File outFile = new File(cacheDir, fileName);
+
+        try (InputStream in = requireContext().getContentResolver().openInputStream(uri);
+             FileOutputStream fos = new FileOutputStream(outFile)) {
+            byte[] buf = new byte[8192];
+            int len;
+            while ((len = in.read(buf)) != -1) {
+                fos.write(buf, 0, len);
+            }
+        }
+        return outFile;
     }
 
     private DiseaseResult classifyImage(File imageFile, String mimeType) throws IOException {
@@ -383,7 +330,7 @@ public class Recommendation extends Fragment {
             JSONObject json = new JSONObject(responseBody);
 
             if (!response.isSuccessful() || !json.optBoolean("success", false)) {
-                throw new IOException(json.optString("error", "শ্রেণীবদ্ধকরণ ব্যর্থ হয়েছে।"));
+                throw new IOException(json.optString("error", "Classification failed"));
             }
 
             JSONObject data = json.getJSONObject("data");
@@ -399,11 +346,8 @@ public class Recommendation extends Fragment {
                 }
             }
             return result;
-
-        } catch (IOException e) {
-            throw e;
         } catch (Exception e) {
-            throw new IOException("সার্ভার থেকে সঠিক উত্তর পাওয়া যায়নি।");
+            throw new IOException("Failed to get response from server");
         }
     }
 
@@ -424,14 +368,12 @@ public class Recommendation extends Fragment {
         }
 
         resultText.setText(android.text.Html.fromHtml(html.toString(), android.text.Html.FROM_HTML_MODE_LEGACY));
-
         showResults();
         uploadButton.setVisibility(View.GONE);
         cancelButton.setVisibility(View.VISIBLE);
     }
 
     private void resetUI() {
-        // Reset to initial state
         imagePreview.setVisibility(View.GONE);
         uploadCard.setVisibility(View.VISIBLE);
         chooseText.setVisibility(View.VISIBLE);
@@ -442,10 +384,8 @@ public class Recommendation extends Fragment {
         selectedImageUri = null;
         selectedFileName = null;
         selectedMimeType = null;
-        currentPhotoPath = null;
         uploadButton.setEnabled(true);
 
-        // Clear the image from Glide
         if (imagePreview != null) {
             Glide.with(this).clear(imagePreview);
         }
