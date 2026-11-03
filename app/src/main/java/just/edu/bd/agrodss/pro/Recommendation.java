@@ -29,6 +29,7 @@ import com.bumptech.glide.Glide;
 import com.google.android.material.button.MaterialButton;
 
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.File;
@@ -51,6 +52,19 @@ import okhttp3.Response;
 public class Recommendation extends Fragment {
 
     private static final String BASE_API_URL = "http://103.159.2.97:8081";
+
+    // User-facing (Bangla) fallback messages. Never show raw server/technical text to farmers.
+    private static final String MSG_NO_LEAF_DETECTED = "প্রদত্ত ছবিতে কোনো রোগাক্রান্ত গাছের পাতা সনাক্ত করা যায়নি।";
+    private static final String MSG_IMAGE_TOO_LARGE = "ছবির আকার অনেক বড়। অনুগ্রহ করে ছোট আকারের ছবি দিয়ে আবার চেষ্টা করুন।";
+    private static final String MSG_SERVER_BUSY = "এই মুহূর্তে ছবিটি বিশ্লেষণ করা সম্ভব হচ্ছে না। অনুগ্রহ করে কিছুক্ষণ পর আবার চেষ্টা করুন।";
+    private static final String MSG_NETWORK = "সার্ভারের সাথে সংযোগ করা যায়নি। ইন্টারনেট সংযোগ পরীক্ষা করে আবার চেষ্টা করুন।";
+
+    /** An error whose message is already safe and ready to show to the user. */
+    public static class ApiException extends IOException {
+        public ApiException(String userMessage) {
+            super(userMessage);
+        }
+    }
 
     private ImageView imagePreview;
     private CardView uploadCard;
@@ -106,9 +120,15 @@ public class Recommendation extends Fragment {
             });
 
     public Recommendation() {
+//        client = new OkHttpClient.Builder()
+//                .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+//                .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+//                .build();
         client = new OkHttpClient.Builder()
                 .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
-                .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                .writeTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
+                .callTimeout(150, java.util.concurrent.TimeUnit.SECONDS)
                 .build();
     }
 
@@ -184,12 +204,10 @@ public class Recommendation extends Fragment {
             Intent takePictureIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
             if (takePictureIntent.resolveActivity(requireContext().getPackageManager()) != null) {
                 File photoFile = createImageFile();
-                if (photoFile != null) {
-                    selectedImageUri = FileProvider.getUriForFile(requireContext(),
-                            requireContext().getPackageName() + ".provider", photoFile);
-                    takePictureIntent.putExtra(MediaStore.EXTRA_OUTPUT, selectedImageUri);
-                    cameraLauncher.launch(takePictureIntent);
-                }
+                selectedImageUri = FileProvider.getUriForFile(requireContext(),
+                        requireContext().getPackageName() + ".provider", photoFile);
+                takePictureIntent.putExtra(MediaStore.EXTRA_OUTPUT, selectedImageUri);
+                cameraLauncher.launch(takePictureIntent);
             } else {
                 Toast.makeText(requireContext(), "No camera app found", Toast.LENGTH_SHORT).show();
             }
@@ -268,31 +286,42 @@ public class Recommendation extends Fragment {
         new Thread(() -> {
             try {
                 File file = createFileFromUri(selectedImageUri);
-                if (file == null) {
-                    requireActivity().runOnUiThread(() -> {
-                        Toast.makeText(requireContext(), "Failed to prepare file", Toast.LENGTH_SHORT).show();
-                        uploadButton.setEnabled(true);
-                    });
-                    return;
-                }
 
                 String mimeType = selectedMimeType != null ? selectedMimeType : "image/jpeg";
                 DiseaseResult result = classifyImage(file, mimeType);
 
-                requireActivity().runOnUiThread(() -> {
+                runOnUiThreadSafe(() -> {
                     uploadButton.setEnabled(true);
-                    displayResult(result);
                     progressBar.setVisibility(View.GONE);
+                    displayResult(result);
                 });
 
             } catch (Exception e) {
-                requireActivity().runOnUiThread(() -> {
-                    uploadButton.setEnabled(true);
-                    progressBar.setVisibility(View.GONE);
-                    Toast.makeText(requireContext(), "Error: " + e.getMessage(), Toast.LENGTH_LONG).show();
-                });
+                // ApiException already carries a user-friendly message; anything else is unexpected.
+                final String message = (e instanceof ApiException) ? e.getMessage() : MSG_SERVER_BUSY;
+                runOnUiThreadSafe(() -> showMessage(message));
             }
         }).start();
+    }
+
+    /** Runs on the UI thread only if the fragment is still attached (avoids crashes after navigation). */
+    private void runOnUiThreadSafe(Runnable action) {
+        if (!isAdded() || getActivity() == null) return;
+        requireActivity().runOnUiThread(() -> {
+            if (isAdded()) action.run();
+        });
+    }
+
+    /** Shows a friendly message in the result area (not a Toast) and lets the user retry or pick another image. */
+    private void showMessage(String message) {
+        progressBar.setVisibility(View.GONE);
+        uploadButton.setEnabled(true);
+        if (resultText == null) return;
+
+        resultText.setText(message);
+        showResults();
+        uploadButton.setVisibility(View.VISIBLE);   // retry
+        cancelButton.setVisibility(View.VISIBLE);   // choose another image
     }
 
     private File createFileFromUri(Uri uri) throws IOException {
@@ -326,29 +355,66 @@ public class Recommendation extends Fragment {
                 .build();
 
         try (Response response = client.newCall(request).execute()) {
-            String responseBody = response.body() != null ? response.body().string() : "";
-            JSONObject json = new JSONObject(responseBody);
+            final int code = response.code();
+            final String body = response.body() != null ? response.body().string() : "";
+            final JSONObject json = parseJsonOrNull(body);
 
-            if (!response.isSuccessful() || !json.optBoolean("success", false)) {
-                throw new IOException(json.optString("error", "Classification failed"));
-            }
+            // ---- 2xx success ----
+            if (response.isSuccessful() && json != null && json.optBoolean("success", false)) {
+                JSONObject data = json.optJSONObject("data");
+                if (data == null) throw new ApiException(MSG_SERVER_BUSY);
 
-            JSONObject data = json.getJSONObject("data");
-            DiseaseResult result = new DiseaseResult();
-            result.diseaseName = data.optString("diseaseName", null);
-            result.rule = data.optString("rule", null);
-
-            result.pesticideNames = new ArrayList<>();
-            JSONArray pesticideArray = data.optJSONArray("pesticideName");
-            if (pesticideArray != null) {
-                for (int i = 0; i < pesticideArray.length(); i++) {
-                    result.pesticideNames.add(pesticideArray.getString(i));
+                DiseaseResult result = new DiseaseResult();
+                result.diseaseName = optStringOrNull(data, "diseaseName");
+                result.rule = optStringOrNull(data, "rule");
+                result.pesticideNames = new ArrayList<>();
+                JSONArray pesticideArray = data.optJSONArray("pesticideName");
+                if (pesticideArray != null) {
+                    for (int i = 0; i < pesticideArray.length(); i++) {
+                        result.pesticideNames.add(pesticideArray.getString(i));
+                    }
                 }
+                return result;
             }
-            return result;
-        } catch (Exception e) {
-            throw new IOException("Failed to get response from server");
+
+            // ---- 4xx: the server's "error" text is written for the user -> show it as-is ----
+            if (code >= 400 && code < 500) {
+                String serverMessage = json != null ? optStringOrNull(json, "error") : null;
+                if (serverMessage == null && json != null) serverMessage = optStringOrNull(json, "message");
+
+                if (serverMessage != null) throw new ApiException(serverMessage);
+                if (code == 413) throw new ApiException(MSG_IMAGE_TOO_LARGE);
+                if (code == 422) throw new ApiException(MSG_NO_LEAF_DETECTED);
+            }
+
+            // ---- 5xx / unreadable body / anything unexpected -> never leak technical details ----
+            throw new ApiException(MSG_SERVER_BUSY);
+
+        } catch (ApiException e) {
+            throw e;                                   // already user-friendly, pass through untouched
+        } catch (java.net.SocketTimeoutException e) {
+            throw new ApiException(MSG_SERVER_BUSY);   // server too slow
+        } catch (IOException e) {
+            throw new ApiException(MSG_NETWORK);       // no connection / DNS / connection reset
+        } catch (JSONException e) {
+            throw new ApiException(MSG_SERVER_BUSY);   // malformed success payload
         }
+    }
+
+    private static JSONObject parseJsonOrNull(String body) {
+        if (body == null || body.trim().isEmpty()) return null;
+        try {
+            return new JSONObject(body);
+        } catch (JSONException e) {
+            return null;                               // e.g. HTML error page from a proxy/gateway
+        }
+    }
+
+    /** Returns null for missing, JSON-null or blank values (org.json would otherwise return the string "null"). */
+    private static String optStringOrNull(JSONObject obj, String key) {
+        if (obj == null || obj.isNull(key)) return null;
+        String value = obj.optString(key, "").trim();
+        return value.isEmpty() ? null : value;
     }
 
     private void displayResult(DiseaseResult result) {
